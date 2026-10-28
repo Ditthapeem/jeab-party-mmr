@@ -78,6 +78,14 @@ input,select{font:inherit;color:var(--tx);background:var(--bg);border:2px solid 
 .h .d{color:var(--mut);font-size:12px}
 .empty{text-align:center;color:var(--mut);padding:18px}
 .tier{font-size:12px;color:var(--mut)}
+.rule-title{font-size:17px;margin:0 0 8px}
+.rule-list{margin:0;padding-left:20px;line-height:1.7}
+.rule-list li{margin:4px 0}
+.rule-table{width:100%;border-collapse:collapse;font-size:13px}
+.rule-table th,.rule-table td{padding:8px 6px;text-align:left;border-bottom:1px dashed var(--bd);vertical-align:top}
+.rule-table th{color:var(--mut);font-weight:700}
+.rule-badge{display:inline-block;background:var(--pk2);border-radius:12px;padding:4px 9px;font-weight:700}
+.rule-note{font-size:12px;color:var(--mut);line-height:1.6;margin:8px 0 0}
 .chip{padding:6px 12px;border-radius:16px;border:2px solid var(--bd);cursor:pointer;font-size:14px}.chip.on{background:var(--pk);color:#fff;border-color:var(--pk)}
 #pk{position:fixed;inset:0;background:#0006;display:grid;place-items:center;z-index:20}
 .pkb{background:var(--card);border-radius:22px;padding:14px;max-width:320px;width:90%}
@@ -89,18 +97,20 @@ input,select{font:inherit;color:var(--tx);background:var(--bg);border:2px solid 
 </head>
 <body>
 <div class="wrap">
-  <h1>🐥 MMR ก๊วนลูกเจี๊ยบ</h1>
-  <p class="sub">ฝีมืออาจไม่มาก แต่ความมั่นหน้าระดับโลก! ✨</p>
+  <h1>🐥 MMR ก๊วนลูกเจี๊ยบ </h1>
+  <p class="sub"> ฝีมืออาจไม่มาก แต่ความมั่นหน้าระดับโลก!✨</p>
   <div class="tabs" id="tabs">
     <button data-t="rank" class="on">🏆 Ranking</button>
     <button data-t="match">🎯 Record</button>
-    <button data-t="pair">🤝 Match</button>
+    <button data-t="pair">🤝 Matching</button>
     <button data-t="hist">📜 Career</button>
+    <button data-t="rules">📊 Rules</button>
   </div>
   <div id="rank"></div>
   <div id="match" hidden></div>
   <div id="pair" hidden></div>
   <div id="hist" hidden></div>
+  <div id="rules" hidden></div>
 </div>
 <div id="toast"></div>
 <script>
@@ -222,9 +232,57 @@ function makePairs(){
     return `<div class="card"><b>🏟️ คอร์ท ${k+1} · ${g.A.length===1?'เดี่ยว':'คู่'}</b><div class="team ta" style="margin-top:8px">💙 ${namesP(g.A)}</div><div class="team tb">💛 ${namesP(g.B)}</div><div class="row"><small class="tier" style="flex:1">โอกาสชนะ A ${e}% · B ${100-e}%</small><button class="btn s" data-u="${k}">ใช้บันทึกผล</button></div></div>`}).join('')+(bench.length?`<div class="card empty">😴 รอบนี้พัก (รอบหน้าได้ลงก่อน): ${namesP(bench)}</div>`:'');
   document.querySelectorAll('[data-u]').forEach(b=>b.onclick=()=>{const g=lastGames[b.dataset.u];setTab('match');['a1','a2','b1','b2'].forEach(x=>$(x).value='');g.A.forEach((p,j)=>$('a'+(j+1)).value=p.id);g.B.forEach((p,j)=>$('b'+(j+1)).value=p.id)});
 }
-function renderAll(){renderRank();renderMatch();renderPair();renderHist()}
+
+function renderRules(){
+  const tierRows=TIERS.map((t,i)=>{
+    const low=t[0], high=i===0?'ขึ้นไป':TIERS[i-1][0]-1;
+    return `<tr><td><b>${t[1]} ${t[2]}</b></td><td>${i===0?'1,500+':`${low.toLocaleString()}–${high.toLocaleString()}`}</td></tr>`;
+  }).join('');
+  $('rules').innerHTML=`
+    <div class="card">
+      <h3 class="rule-title">🏆 แรงค์ของก๊วนลูกเจี๊ยบ</h3>
+      <p style="margin:0 0 10px">เริ่มต้นทุกคนที่ <span class="rule-badge">${START.toLocaleString()} MMR</span></p>
+      <table class="rule-table">
+        <thead><tr><th>แรงค์</th><th>คะแนน MMR</th></tr></thead>
+        <tbody>${tierRows}</tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h3 class="rule-title">📈 ได้แต้ม / เสียแต้มยังไง?</h3>
+      <ul class="rule-list">
+        <li>🏅 <b>ชนะ</b> ได้ MMR เพิ่ม ส่วน <b>แพ้</b> เสีย MMR</li>
+        <li>🌱 <b>10 เกมแรกของแต่ละคน</b> ใช้ตัวคูณ K = ${KN} ทำให้คะแนนเปลี่ยนมากกว่าปกติ</li>
+        <li>🐣 หลังจากนั้นใช้ตัวคูณ K = ${K}</li>
+        <li>⚖️ คะแนนที่ได้หรือเสียขึ้นอยู่กับ MMR เฉลี่ยของทั้งสองทีม ไม่ได้บวก/ลบเท่ากันทุกเกม</li>
+        <li>🎯 กรอกสกอร์ เช่น <b>21-17</b> เพื่อเพิ่มโบนัสตามส่วนต่างคะแนน</li>
+        <li>🛡️ กรณีทีมแพ้เป็นคู่ หากอันดับของผู้เล่นห่างจากเพื่อนร่วมทีมตั้งแต่ 5 อันดับขึ้นไป และผู้เล่นคนนั้นอันดับสูงกว่า จะลดการเสียแต้มลง 20%</li>
+      </ul>
+      <p class="rule-note">หมายเหตุ: คะแนน MMR ปัดเป็นจำนวนเต็มทุกแมตช์ และระบบจะเก็บประวัติสูงสุด 100 แมตช์</p>
+    </div>
+    <div class="card">
+      <h3 class="rule-title">🧮 โบนัสจากส่วนต่างสกอร์</h3>
+      <p style="margin:0 0 8px">ยิ่งผลต่างคะแนนมาก โบนัสยิ่งสูง โดยเพิ่มได้สูงสุด 50%</p>
+      <table class="rule-table">
+        <thead><tr><th>ตัวอย่างสกอร์</th><th>โบนัสโดยประมาณ</th></tr></thead>
+        <tbody>
+          <tr><td>21-20</td><td>+2.4%</td></tr>
+          <tr><td>21-17</td><td>+9.5%</td></tr>
+          <tr><td>21-11</td><td>+23.8%</td></tr>
+          <tr><td>21-0</td><td>+50% (สูงสุด)</td></tr>
+        </tbody>
+      </table>
+      <p class="rule-note">โบนัสคิดจากสูตร: 1 + min(ส่วนต่างสกอร์ ÷ 21, 1) × 0.5</p>
+    </div>
+    <div class="card">
+      <h3 class="rule-title">🤓 สูตรคำนวณแบบไม่ต้องปวดหัว</h3>
+      <p style="margin:0;line-height:1.7">ระบบดูความเก่งเฉลี่ยของทั้งสองทีมก่อน แล้วคำนวณโอกาสชนะตาม MMR จากนั้นปรับแต้มตามผลแพ้ชนะ โบนัสสกอร์ และสถานะ 10 เกมแรก</p>
+      <p class="rule-note">สรุป: ชนะทีมที่เก่งกว่า = มีโอกาสได้แต้มเยอะ / แพ้ทีมที่อ่อนกว่า = มีโอกาสเสียแต้มเยอะ 😅</p>
+    </div>`;
+}
+
+function renderAll(){renderRank();renderMatch();renderPair();renderHist();renderRules()}
 function setTab(t){
-  ['rank','match','pair','hist'].forEach(x=>$(x).hidden=x!==t);
+  ['rank','match','pair','hist','rules'].forEach(x=>$(x).hidden=x!==t);
   document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
 }
 document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>setTab(b.dataset.t));
