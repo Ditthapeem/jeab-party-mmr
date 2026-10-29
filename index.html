@@ -178,10 +178,14 @@ function renderMatch(){
   <div class="team tb"><h3>💛 ทีม B</h3><select id="b1">${opts()}</select><select id="b2">${opts().replace('เลือกผู้เล่น','คู่ (ถ้าเล่นคู่)')}</select></div>
   <div class="win" id="win"><label data-w="A" class="on">💙 ทีม A ชนะ</label><label data-w="B">💛 ทีม B ชนะ</label></div>
   <input id="sc" placeholder="สกอร์ เช่น 21-17 (ยิ่งห่าง ยิ่งได้โบนัส)" maxlength="20" style="margin-bottom:12px">
-  <button class="btn g" id="go" style="width:100%">บันทึกผล ✨</button></div>`;
+  <button class="btn g" id="go" style="width:100%">✨ บันทึกผล</button>
+  ${S.matches.length?'<button class="btn" id="undoLast" style="width:100%;margin-top:8px;background:var(--red)">↩️ ย้อนกลับผลล่าสุด</button>':''}
+  </div>`;
   document.querySelectorAll('#win label').forEach(l=>l.onclick=()=>{win=l.dataset.w;document.querySelectorAll('#win label').forEach(x=>x.classList.toggle('on',x===l))});
   win='A';
   $('go').onclick=submit;
+  const undo=$('undoLast');
+  if(undo)undo.onclick=undoLastResult;
 }
 function submit(){
   const A=[$('a1').value,$('a2').value].filter(Boolean),B=[$('b1').value,$('b2').value].filter(Boolean);
@@ -193,15 +197,31 @@ function submit(){
   const sa=win==='A'?1:0,mag=Math.abs(sa-ea),mult=scoreMult($('sc').value);
   const order=[...S.players].sort((a,b)=>b.mmr-a.mmr).map(p=>p.id),rk=id=>order.indexOf(id);let top=0;
   const snap=ids=>ids.map(i=>({id:i,n:byId(i).name}));
+  const before={};
+  [...A,...B].forEach(i=>{const p=byId(i);before[i]={mmr:p.mmr,w:p.w,l:p.l,last:p.last}});
   const upd=(ids,won)=>ids.forEach(i=>{const p=byId(i),k=p.w+p.l<NEWG?KN:K;let d=k*mag*mult;
     if(!won){d=-d;if(ids.length===2){const o=ids.find(x=>x!==i);if(Math.abs(rk(i)-rk(o))>=5&&rk(i)<rk(o))d*=0.8}}
     d=Math.round(d);p.mmr+=d;p.last=d;won?p.w++:p.l++;if(won)top=Math.max(top,d)});
   upd(A,sa===1);upd(B,sa===0);
-  S.matches.unshift({t:Date.now(),A:snap(A),B:snap(B),win,d:top,sc:$('sc').value.trim()});
+  S.matches.unshift({t:Date.now(),A:snap(A),B:snap(B),win,d:top,sc:$('sc').value.trim(),before});
   S.matches=S.matches.slice(0,100);
   save();renderAll();toast(`ทีม ${win} ชนะ! 🎉 +${top} MMR`);
   setTab('rank');
 }
+
+function undoLastResult(){
+  const m=S.matches[0];
+  if(!m)return toast('ยังไม่มีผลให้ย้อนกลับนะ');
+  if(!m.before)return toast('ผลแมตช์นี้เป็นข้อมูลเวอร์ชันเก่า จึงย้อนคะแนนอัตโนมัติไม่ได้');
+  if(!confirm('ย้อนผลแมตช์ล่าสุดใช่ไหม? ระบบจะคืน MMR, สถิติชนะ/แพ้ และแต้มล่าสุดก่อนแมตช์นี้'))return;
+  Object.entries(m.before).forEach(([id,v])=>{
+    const p=byId(id);
+    if(p){p.mmr=v.mmr;p.w=v.w;p.l=v.l;p.last=v.last}
+  });
+  S.matches.shift();
+  save();renderAll();setTab('match');toast('ย้อนผลล่าสุดแล้ว คะแนนและสถิติถูกคืนให้แล้ว ↩️');
+}
+
 function renderHist(){
   if(hf&&!byId(hf))hf='';
   const ms=S.matches.filter(m=>!hf||[...m.A,...m.B].some(x=>x.id===hf));
@@ -229,44 +249,40 @@ function renderPair(){
 function makePairs(){
   const sel=S.players.filter(p=>present.has(p.id));
   if(sel.length<2)return toast('เลือกอย่างน้อย 2 คนนะ');
-  const st=p=>sess[p.id]||(sess[p.id]={g:0,b:0});
 
-  // จัดลงสนามเฉพาะเกมประเภทคู่ (2 คนต่อทีม) เท่านั้น
+  // จับคู่ให้ครบก่อน โดยจับคนอันดับสูงกับอันดับต่ำเพื่อบาลานซ์ MMR
   const ranked=[...sel].sort((a,b)=>b.mmr-a.mmr);
-  lastGames=[];
-  let i=0;
-  while(ranked.length-i>=4){
-    const g=ranked.slice(i,i+4);
-    lastGames.push({A:[g[0],g[3]],B:[g[1],g[2]]});
-    i+=4;
+  const pairs=[];
+  for(let i=0;i<Math.floor(ranked.length/2);i++){
+    pairs.push([ranked[i],ranked[ranked.length-1-i]]);
   }
-
-  const rest=ranked.slice(i);
-  let suggestion='';
-  if(rest.length){
-    // แสดงผู้เล่นที่เหลือเป็นคู่แนะนำ และระบุจำนวนผู้เล่นที่ต้องเติมเพื่อเปิดคอร์ทเพิ่ม
-    const available=S.players.filter(p=>!present.has(p.id)).sort((a,b)=>b.mmr-a.mmr);
-    let suggestedPair=[];
-    if(rest.length===1){
-      if(available.length) suggestedPair=[rest[0],available[0]];
-      else suggestedPair=[rest[0]];
-    }else{
-      suggestedPair=rest.slice(0,2);
-    }
-    const need=Math.max(0,4-rest.length);
-    suggestion=`<div class="card empty"><b>🤝 คู่แนะนำ</b><div style="margin-top:8px">${namesP(suggestedPair)}</div><div style="margin-top:8px">${rest.length===1 && available.length ? 'แนะนำจับคู่กับผู้เล่นที่ยังไม่ได้เลือก เพื่อให้ครบคู่' : `เหลือ ${rest.length} คน ต้องเติมอีก ${need} คนจึงจะเปิดคอร์ทคู่เพิ่มได้`}</div><div style="margin-top:8px">หรือใครไม่เหนื่อยเติมหน่อยจ้า 🥹🏸</div></div>`;
+  const odd=ranked.length%2?ranked[Math.floor(ranked.length/2)]:null;
+  const courts=[];
+  for(let i=0;i+1<pairs.length;i+=2){
+    courts.push({A:pairs[i],B:pairs[i+1]});
   }
+  const waiting=pairs.slice(courts.length*2);
+  const available=S.players.filter(p=>!present.has(p.id)).sort((a,b)=>b.mmr-a.mmr);
+  let out='';
 
-  lastGames.forEach(g=>[...g.A,...g.B].forEach(p=>st(p).g++));
-  $('out').innerHTML=lastGames.map((g,k)=>{
+  courts.forEach((g,k)=>{
     const a=avgP(g.A),b=avgP(g.B),e=Math.round(100/(1+Math.pow(10,(b-a)/400)));
-    return `<div class="card"><b>🏟️ คอร์ท ${k+1} · คู่</b><div class="team ta" style="margin-top:8px">💙 ${namesP(g.A)}</div><div class="team tb">💛 ${namesP(g.B)}</div><div class="row"><small class="tier" style="flex:1">โอกาสชนะ A ${e}% · B ${100-e}%</small><button class="btn s" data-u="${k}">ใช้บันทึกผล</button></div></div>`;
-  }).join('')+suggestion;
-  if(!lastGames.length && !rest.length){
-    $('out').innerHTML='<div class="card empty">เลือกผู้เล่นเพื่อจัดคู่ได้เลย 🏸</div>';
+    out+=`<div class="card"><b>🏟️ คอร์ท ${k+1} · คู่</b><div class="team ta" style="margin-top:8px">💙 ${namesP(g.A)}</div><div class="team tb">💛 ${namesP(g.B)}</div><div class="tier">โอกาสชนะ A ${e}% · B ${100-e}%</div><button class="btn s" style="margin-top:8px" data-u="${k}">ใช้บันทึกผล</button></div>`;
+  });
+
+  if(waiting.length || odd){
+    out+='<div class="card"><b>🤝 ลิสต์คู่รอคอร์ท (ยังไม่ลงคอร์ท)</b>';
+    waiting.forEach((pair,i)=>{out+=`<div class="team ta" style="margin-top:8px;margin-bottom:0">คู่ ${courts.length*2+i+1}: ${namesP(pair)}</div>`});
+    if(odd){
+      const suggested=available[0];
+      out+=`<div class="team tb" style="margin-top:8px;margin-bottom:0"><b>✨ คู่แนะนำสำหรับคนที่เหลือ</b><div style="margin-top:6px">${ic(odd.av)} ${esc(odd.name)}${suggested?' & '+ic(suggested.av)+' '+esc(suggested.name):''}</div><div class="tier" style="margin-top:6px">${suggested?'แนะนำให้จับคู่กับคนที่ยังไม่ได้เลือก':'ยังขาดอีก 1 คนเพื่อให้จับคู่ครบ'}</div></div>`;
+    }
+    out+='<div style="text-align:center;color:var(--mut);margin-top:12px">หรือใครไม่เหนื่อยเติมหน่อยจ้า 🥹🏸</div></div>';
   }
+  if(!out)out='<div class="card empty">เลือกผู้เล่นเพื่อจัดคู่ได้เลย 🏸</div>';
+  $('out').innerHTML=out;
   document.querySelectorAll('[data-u]').forEach(b=>b.onclick=()=>{
-    const g=lastGames[b.dataset.u];setTab('match');
+    const g=courts[Number(b.dataset.u)];setTab('match');
     ['a1','a2','b1','b2'].forEach(x=>$(x).value='');
     g.A.forEach((p,j)=>$('a'+(j+1)).value=p.id);
     g.B.forEach((p,j)=>$('b'+(j+1)).value=p.id);
@@ -313,9 +329,9 @@ function renderRules(){
       <p class="rule-note">โบนัสคิดจากสูตร: 1 + min(ส่วนต่างสกอร์ ÷ 21, 1) × 0.5</p>
     </div>
     <div class="card">
-      <h3 class="rule-title">🤓 สูตรคำนวณแบบไม่ต้องปวดหัว</h3>
-      <p style="margin:0;line-height:1.7">ระบบดูความเก่งเฉลี่ยของทั้งสองทีมก่อน แล้วคำนวณโอกาสชนะตาม MMR จากนั้นปรับแต้มตามผลแพ้ชนะ โบนัสสกอร์ และสถานะ 10 เกมแรก</p>
-      <p class="rule-note">สรุป: ชนะทีมที่เก่งกว่า = มีโอกาสได้แต้มเยอะ / แพ้ทีมที่อ่อนกว่า = มีโอกาสเสียแต้มเยอะ 😅</p>
+      <h3 class="rule-title">🤓 ระบบแรงค์แบบเข้าใจง่าย</h3>
+      <p style="margin:0;line-height:1.7">ระบบดู MMR เฉลี่ยของทั้งสองทีมก่อน แล้วคำนวณโอกาสชนะตาม MMR จากนั้นปรับแต้มตามผลแพ้ชนะ โบนัสสกอร์ และสถานะ 10 เกมแรก</p>
+      <p class="rule-note">สรุป: ชนะทีมที่เก่งกว่า = มีโอกาสได้แต้มเยอะ / แพ้ทีมที่อ่อนกว่า = มีโอกาสเสียแต้มเยอะ </p>
     </div>`;
 }
 
